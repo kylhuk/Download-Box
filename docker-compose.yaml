@@ -1,0 +1,362 @@
+version: '3.3'
+services:
+  portainer:
+    ports:
+        - '8000:8000'
+        - '9000:9000'
+    container_name: portainer
+    restart: unless-stopped
+    volumes:
+        - /var/run/docker.sock:/var/run/docker.sock
+        - ${CONTAINER_CONF_PATH}/portainer/data:/data
+    image: portainer/portainer-ce:latest
+    environment:
+      - PUID=${PUID} # default user id, defined in .env
+      - PGID=${PGID}
+    networks:
+      - custom
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+    stdin_open: true
+    tty: true  
+
+  node-red:
+    ports:
+        - '1880:1880'
+    volumes:
+        - '${CONTAINER_CONF_PATH}/nodered/data:/data'
+    container_name: mynodered
+    networks:
+      - custom
+    restart: unless-stopped
+    image: nodered/node-red:latest
+    environment:
+      - PUID=${PUID} # default user id, defined in .env
+      - PGID=${PGID}
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+    stdin_open: true
+    tty: true  
+
+  mosquitto:
+    ports:
+        - '1883:1883'
+    container_name: mqtt
+    restart: unless-stopped
+    volumes:
+        - '${CONTAINER_CONF_PATH}/mosquitto/config:/mqtt/config:ro'
+        - '${CONTAINER_CONF_PATH}/mosquitto/data:/mqtt/data'
+        - '${CONTAINER_CONF_PATH}/mosquitto/log:/mqtt/log'
+    networks:
+      - custom
+    image: toke/mosquitto:latest
+    environment:
+      - PUID=${PUID} # default user id, defined in .env
+      - PGID=${PGID}
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+    stdin_open: true
+    tty: true 
+
+  prometheus:
+    ports:
+        - '9090:9090'
+    container_name: prometheus
+    volumes:
+        - '${CONTAINER_CONF_PATH}/prometheus/config/prometheus.yml:/etc/prometheus/prometheus.yml'
+        - '${CONTAINER_CONF_PATH}/prometheus/data:/prometheus'
+    restart: unless-stopped
+    image: prom/prometheus:latest
+    environment:
+      - PUID=${PUID} # default user id, defined in .env
+      - PGID=${PGID}
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+    networks:
+      - custom
+    stdin_open: true
+    tty: true 
+
+  grafana:
+      ports:
+          - '3000:3000'
+      restart: unless-stopped
+      container_name: grafana
+      environment:
+        - PUID=${PUID} # default user id, defined in .env
+        - PGID=${PGID}
+      volumes:
+          - '${CONTAINER_CONF_PATH}/grafana/data:/var/lib/grafana'
+          - '${CONTAINER_CONF_PATH}/grafana/config/grafana.ini:/etc/grafana/grafana.ini'
+      image: grafana/grafana:latest
+      labels:
+        - "com.centurylinklabs.watchtower.enable=true"
+      networks:
+        - custom
+      stdin_open: true
+      tty: true 
+      
+  vpn:
+    container_name: vpn
+    image: dperson/openvpn-client:latest
+    cap_add:
+      - net_admin # required to modify network interfaces
+    restart: unless-stopped
+    volumes:
+      - ${CONTAINER_CONF_PATH}/openvpn/config:/vpn # OpenVPN configuration
+    security_opt:
+      - label:disable
+    ports:
+      - 8112:8112 # port for deluge web UI to be reachable from local network
+    command: '-f "" -r 192.168.1.0/24' # enable firewall and route local network traffic
+    networks:
+      - vpn
+      - custom
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+    stdin_open: true
+    tty: true
+  
+  deluge:
+    container_name: deluge
+    image: lscr.io/linuxserver/deluge:latest
+    restart: unless-stopped
+    network_mode: service:vpn # run on the vpn network
+    environment:
+      - PUID=${PUID} # default user id, defined in .env
+      - PGID=${PGID} # default group id, defined in .env
+      - TZ=${TZ} # timezone, defined in .env
+      - DELUGE_LOGLEVEL=debug
+    volumes:
+      - ${DOWNLOAD_PATH}:/downloads # downloads folder
+      - ${CONTAINER_CONF_PATH}/deluge/config:/config # config files
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+    stdin_open: true
+    tty: true
+
+  jackett:
+    container_name: jackett
+    image: linuxserver/jackett:latest
+    restart: unless-stopped
+    networks:
+      - custom
+    environment:
+      - PUID=${PUID} # default user id, defined in .env
+      - PGID=${PGID} # default group id, defined in .env
+      - TZ=${TZ} # timezone, defined in .env
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - ${DOWNLOAD_PATH}/torrent-blackhole:/downloads # place where to put .torrent files for manual download
+      - ${CONTAINER_CONF_PATH}/jackett/config:/config # config files
+    ports:
+      - 9117:9117
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+    stdin_open: true
+    tty: true  
+
+  nzbget:
+    container_name: nzbget
+    image: linuxserver/nzbget:latest
+    restart: unless-stopped
+    networks:
+      - custom
+    environment:
+      - PUID=${PUID} # default user id, defined in .env
+      - PGID=${PGID} # default group id, defined in .env
+      - TZ=${TZ} # timezone, defined in .env
+    volumes:
+      - ${DOWNLOAD_PATH}:/downloads # download folder
+      - ${CONTAINER_CONF_PATH}/nzbget/config:/config # config files
+    ports:
+      - 6789:6789
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+    stdin_open: true
+    tty: true  
+
+  sonarr:
+    container_name: sonarr
+    image: linuxserver/sonarr:latest
+    restart: unless-stopped
+    networks:
+      - custom
+    environment:
+      - PUID=${PUID} # default user id, defined in .env
+      - PGID=${PGID} # default group id, defined in .env
+      - TZ=${TZ} # timezone, defined in .env
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - ${CONTAINER_CONF_PATH}/sonarr/config:/config # config files
+      - ${MEDIA_STORAGE_TVSHOWS}:/tv # tv shows folder
+      - ${DOWNLOAD_PATH}:/downloads # download folder
+    ports:
+      - 8989:8989
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+    stdin_open: true
+    tty: true  
+
+  radarr:
+    container_name: radarr
+    image: linuxserver/radarr:latest
+    restart: unless-stopped
+    networks:
+      - custom
+    environment:
+      - PUID=${PUID} # default user id, defined in .env
+      - PGID=${PGID} # default group id, defined in .env
+      - TZ=${TZ} # timezone, defined in .env
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - ${CONTAINER_CONF_PATH}/radarr/config:/config # config files
+      - ${MEDIA_STORAGE_MOVIES}:/movies # movies folder
+      - ${DOWNLOAD_PATH}:/downloads # download folder
+    ports:
+      - 7878:7878
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+    stdin_open: true
+    tty: true  
+
+  bazarr:
+    container_name: bazarr
+    image: linuxserver/bazarr:latest
+    restart: unless-stopped
+    networks:
+      - custom
+    environment:
+      - PUID=${PUID} # default user id, defined in .env
+      - PGID=${PGID} # default group id, defined in .env
+      - TZ=${TZ} # timezone, defined in .env
+      - UMASK_SET=022 #optional
+    volumes:
+      - ${CONTAINER_CONF_PATH}/bazarr/config:/config # config files
+      - ${MEDIA_STORAGE_MOVIES}:/movies # movies folder
+      - ${MEDIA_STORAGE_TVSHOWS}:/tv # tv shows folder
+    ports:
+      - 6767:6767
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+    stdin_open: true
+    tty: true  
+  
+  watchtower:
+    container_name: watchtower
+    image: containrrr/watchtower:latest
+    restart: always
+    networks:
+      - custom
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      - WATCHTOWER_CLEANUP=true
+      - WATCHTOWER_LABEL_ENABLE=true
+      - WATCHTOWER_INCLUDE_RESTARTING=true
+      - TZ=${TZ}
+      - PUID=${PUID} # default user id, defined in .env
+      - PGID=${PGID}
+    command: --interval 10 --http-api-metrics --http-api-token demotoken --debug prometheus grafana parent child
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+    stdin_open: true
+    tty: true  
+  
+  pihole:
+    container_name: pihole
+    image: pihole/pihole:latest
+    ports:
+      - "53:53/tcp"
+      - "53:53/udp"
+      - "67:67/udp"
+      - "8833:80/tcp"
+    environment:
+      - TZ=${TZ}
+      - PUID=${PUID} # default user id, defined in .env
+      - PGID=${PGID}
+      # WEBPASSWORD: 'set a secure password here or it will be random'
+    # Volumes store your data between container upgrades
+    volumes:
+      - ${CONTAINER_CONF_PATH}/pihole/etc-pihole/:/etc/pihole/
+      - ${CONTAINER_CONF_PATH}/pihole/etc-dnsmasq.d/:/etc/dnsmasq.d/
+    # Recommended but not required (DHCP needs NET_ADMIN)
+    #   https://github.com/pi-hole/docker-pi-hole#note-on-capabilities
+    cap_add:
+      - NET_ADMIN
+    restart: unless-stopped
+    networks:
+      - custom
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+    stdin_open: true
+    tty: true  
+
+  nzbhydra2:
+    image: lscr.io/linuxserver/nzbhydra2:latest
+    container_name: nzbhydra2
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+    volumes:
+      - ${CONTAINER_CONF_PATH}/nzbhydra2/config:/config
+      - ${DOWNLOAD_PATH}/nzb-blackhole:/nzb-blackhole
+      - ${DOWNLOAD_PATH}/torrent-blackhole:/torrent-blackhole
+    ports:
+      - 5076:5076
+    networks:
+      - custom
+    restart: unless-stopped
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+    stdin_open: true
+    tty: true
+
+  emby:
+    image: emby/embyserver:latest
+    container_name: embyserver
+    networks:
+      - custom
+    environment:
+      - PUID=${PUID} # The UID to run emby as (default: 2)
+      - PGID=${PGID} # The GID to run emby as (default 2)
+    volumes:
+      - ${CONTAINER_CONF_PATH}/emby/config:/config # Configuration directory
+      - ${CONTAINER_CONF_PATH}/emby/backup:/backup
+      - ${MEDIA_STORAGE_MOVIES}:/movies # Media directory
+      - ${MEDIA_STORAGE_TVSHOWS}:/tv # Media directory
+    ports:
+      - 8096:8096 # HTTP port
+      - 8920:8920 # HTTPS port
+    devices:
+      - /dev/dri/renderD128:/dev/dri/renderD128 # VAAPI/NVDEC/NVENC render nodes
+      - /dev/dri/card0:/dev/dri/card0
+    restart: unless-stopped
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+    stdin_open: true
+    tty: true
+
+networks:
+  custom:
+    # use the bridge driver, but enable IPv6
+    driver: bridge
+    driver_opts:
+      com.docker.network.enable_ipv6: "true"
+    ipam:
+      driver: default
+      config:
+        - subnet: 172.16.238.0/24
+          gateway: 172.16.238.1
+
+  vpn:
+    # use the bridge driver, but enable IPv6
+    driver: bridge
+    driver_opts:
+      com.docker.network.enable_ipv6: "true"
+    ipam:
+      driver: default
+      config:
+        - subnet: 172.16.240.0/24
+          gateway: 172.16.240.1
