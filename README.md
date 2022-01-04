@@ -13,6 +13,8 @@ A one-stop solution for downloading and managing movies and tvshows on a Synolog
 ## Quick Start
 Make sure you edit the `.env` file, so it suits your environment. After that you can bring this stack up by executing `docker-compose up -d`. Configs are not provided, so you have to manually configure all the software components.
 
+If you are very new to all the tools, please check this [Installation Guide](https://github.com/sebgl/htpc-download-box#installation-guide) to get some help (and leave a star at that repo).
+
 # FAQ
 If you have any questions regarding this project, feel free to open up an issue and I'll gladly help you.
 
