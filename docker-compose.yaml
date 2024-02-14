@@ -1,109 +1,84 @@
-version: '3.3'
+version: '3.8'
+  #include:
+  #- airflow/apache-airflow-compose.yaml
+
+x-stdin-tty: &stdin-tty
+  stdin_open: true
+  tty: true
+
+x-container-default: &container-default
+  <<: *stdin-tty
+  networks:
+    - custom
+  restart: unless-stopped
+
+
 services:
   portainer:
+    <<: *container-default
     ports:
-        - '8000:8000'
-        - '9000:9000'
+        - 8000:8000
+        - 9000:9000
     container_name: portainer
-    restart: unless-stopped
     volumes:
         - /var/run/docker.sock:/var/run/docker.sock
-        - ${CONTAINER_CONF_PATH}/portainer/data:/data
+        - portainer:/data
     image: portainer/portainer-ce:latest
     environment:
-      - PUID=${PUID} # default user id, defined in .env
-      - PGID=${PGID}
-    networks:
-      - custom
-    labels:
-      - "com.centurylinklabs.watchtower.enable=true"
-    stdin_open: true
-    tty: true  
+      - TZ=${TZ}
 
-  node-red:
+  mqtt:
+    <<: *container-default
     ports:
-        - '1880:1880'
-    volumes:
-        - '${CONTAINER_CONF_PATH}/nodered/data:/data'
-    container_name: mynodered
-    networks:
-      - custom
-    restart: unless-stopped
-    image: nodered/node-red:latest
-    environment:
-      - PUID=${PUID} # default user id, defined in .env
-      - PGID=${PGID}
-    labels:
-      - "com.centurylinklabs.watchtower.enable=true"
-    stdin_open: true
-    tty: true  
-
-  mosquitto:
-    ports:
-        - '1883:1883'
+        - 1883:1883
+        - 9001:9001
     container_name: mqtt
-    restart: unless-stopped
     volumes:
-        - '${CONTAINER_CONF_PATH}/mosquitto/config:/mqtt/config:ro'
-        - '${CONTAINER_CONF_PATH}/mosquitto/data:/mqtt/data'
-        - '${CONTAINER_CONF_PATH}/mosquitto/log:/mqtt/log'
-    networks:
-      - custom
+        - mqtt:/mqtt/config:ro
+        - mqtt:/mqtt/data
+        - mqtt:/mqtt/log
     image: toke/mosquitto:latest
     environment:
-      - PUID=${PUID} # default user id, defined in .env
-      - PGID=${PGID}
-    labels:
-      - "com.centurylinklabs.watchtower.enable=true"
-    stdin_open: true
-    tty: true 
+      - TZ=${TZ}
 
   prometheus:
+    <<: *container-default
     ports:
-        - '9090:9090'
+        - 9090:9090
     container_name: prometheus
     volumes:
-        - '${CONTAINER_CONF_PATH}/prometheus/config/prometheus.yml:/etc/prometheus/prometheus.yml'
-        - '${CONTAINER_CONF_PATH}/prometheus/data:/prometheus'
-    restart: unless-stopped
+        - prometheus:/etc/prometheus
+        - prometheus:/prometheus
     image: prom/prometheus:latest
     environment:
-      - PUID=${PUID} # default user id, defined in .env
-      - PGID=${PGID}
-    labels:
-      - "com.centurylinklabs.watchtower.enable=true"
-    networks:
-      - custom
-    stdin_open: true
-    tty: true 
+      - TZ=${TZ}
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=50y'
 
   grafana:
-      ports:
-          - '3000:3000'
-      restart: unless-stopped
-      container_name: grafana
-      environment:
-        - PUID=${PUID} # default user id, defined in .env
-        - PGID=${PGID}
-      volumes:
-          - '${CONTAINER_CONF_PATH}/grafana/data:/var/lib/grafana'
-          - '${CONTAINER_CONF_PATH}/grafana/config/grafana.ini:/etc/grafana/grafana.ini'
-      image: grafana/grafana:latest
-      labels:
-        - "com.centurylinklabs.watchtower.enable=true"
-      networks:
-        - custom
-      stdin_open: true
-      tty: true 
-      
+    <<: *container-default
+    ports:
+      - 3000:3000
+    container_name: grafana
+    environment:
+      - TZ=${TZ}
+    volumes:
+      - grafana:/var/lib/grafana
+      - grafana:/etc/grafana
+    image: grafana/grafana:latest
+
   vpn:
+    <<: *stdin-tty
+    profiles:
+      - donotstart
     container_name: vpn
     image: dperson/openvpn-client:latest
     cap_add:
       - net_admin # required to modify network interfaces
-    restart: unless-stopped
     volumes:
-      - ${CONTAINER_CONF_PATH}/openvpn/config:/vpn # OpenVPN configuration
+      - openvpn:/vpn # OpenVPN configuration
     security_opt:
       - label:disable
     ports:
@@ -112,231 +87,348 @@ services:
     networks:
       - vpn
       - custom
-    labels:
-      - "com.centurylinklabs.watchtower.enable=true"
-    stdin_open: true
-    tty: true
-  
+    dns: 
+      - 172.16.238.1
+    environment:
+      - TZ=${TZ}
+
   deluge:
+    <<: *container-default
     container_name: deluge
     image: lscr.io/linuxserver/deluge:latest
-    restart: unless-stopped
-    network_mode: service:vpn # run on the vpn network
     environment:
-      - PUID=${PUID} # default user id, defined in .env
-      - PGID=${PGID} # default group id, defined in .env
       - TZ=${TZ} # timezone, defined in .env
-      - DELUGE_LOGLEVEL=debug
+      - DELUGE_LOGLEVEL=warn
     volumes:
-      - ${DOWNLOAD_PATH}:/downloads # downloads folder
-      - ${CONTAINER_CONF_PATH}/deluge/config:/config # config files
-    labels:
-      - "com.centurylinklabs.watchtower.enable=true"
-    stdin_open: true
-    tty: true
+      - lama-nas-downloads:/downloads # downloads folder
+      - deluge:/config # config files
+    ports:
+      - 8112:8112
 
   jackett:
+    <<: *container-default
     container_name: jackett
     image: linuxserver/jackett:latest
-    restart: unless-stopped
-    networks:
-      - custom
     environment:
-      - PUID=${PUID} # default user id, defined in .env
-      - PGID=${PGID} # default group id, defined in .env
       - TZ=${TZ} # timezone, defined in .env
     volumes:
       - /etc/localtime:/etc/localtime:ro
-      - ${DOWNLOAD_PATH}/torrent-blackhole:/downloads # place where to put .torrent files for manual download
-      - ${CONTAINER_CONF_PATH}/jackett/config:/config # config files
+      - lama-nas-torrent-blackhole:/downloads # place where to put .torrent files for manual download
+      - jackett:/config # config files
     ports:
       - 9117:9117
-    labels:
-      - "com.centurylinklabs.watchtower.enable=true"
-    stdin_open: true
-    tty: true  
-
-  nzbget:
-    container_name: nzbget
-    image: linuxserver/nzbget:latest
-    restart: unless-stopped
-    networks:
-      - custom
-    environment:
-      - PUID=${PUID} # default user id, defined in .env
-      - PGID=${PGID} # default group id, defined in .env
-      - TZ=${TZ} # timezone, defined in .env
-    volumes:
-      - ${DOWNLOAD_PATH}:/downloads # download folder
-      - ${CONTAINER_CONF_PATH}/nzbget/config:/config # config files
-    ports:
-      - 6789:6789
-    labels:
-      - "com.centurylinklabs.watchtower.enable=true"
-    stdin_open: true
-    tty: true  
-
+    
   sonarr:
+    <<: *container-default
     container_name: sonarr
     image: linuxserver/sonarr:latest
-    restart: unless-stopped
-    networks:
-      - custom
     environment:
-      - PUID=${PUID} # default user id, defined in .env
-      - PGID=${PGID} # default group id, defined in .env
       - TZ=${TZ} # timezone, defined in .env
     volumes:
       - /etc/localtime:/etc/localtime:ro
-      - ${CONTAINER_CONF_PATH}/sonarr/config:/config # config files
-      - ${MEDIA_STORAGE_TVSHOWS}:/tv # tv shows folder
-      - ${DOWNLOAD_PATH}:/downloads # download folder
+      - sonarr:/config # config files
+      - lama-nas-tvshows:/tv # tv shows folder
+      - lama-nas-downloads:/downloads # download folder
     ports:
       - 8989:8989
-    labels:
-      - "com.centurylinklabs.watchtower.enable=true"
-    stdin_open: true
-    tty: true  
 
   radarr:
+    <<: *container-default
     container_name: radarr
     image: linuxserver/radarr:latest
     restart: unless-stopped
-    networks:
-      - custom
     environment:
-      - PUID=${PUID} # default user id, defined in .env
-      - PGID=${PGID} # default group id, defined in .env
       - TZ=${TZ} # timezone, defined in .env
     volumes:
       - /etc/localtime:/etc/localtime:ro
-      - ${CONTAINER_CONF_PATH}/radarr/config:/config # config files
-      - ${MEDIA_STORAGE_MOVIES}:/movies # movies folder
-      - ${DOWNLOAD_PATH}:/downloads # download folder
+      - radarr:/config # config files
+      - lama-nas-movies:/movies # movies folder
+      - lama-nas-downloads:/downloads # download folder
     ports:
       - 7878:7878
-    labels:
-      - "com.centurylinklabs.watchtower.enable=true"
-    stdin_open: true
-    tty: true  
 
   bazarr:
     container_name: bazarr
     image: linuxserver/bazarr:latest
-    restart: unless-stopped
-    networks:
-      - custom
     environment:
-      - PUID=${PUID} # default user id, defined in .env
-      - PGID=${PGID} # default group id, defined in .env
       - TZ=${TZ} # timezone, defined in .env
       - UMASK_SET=022 #optional
     volumes:
-      - ${CONTAINER_CONF_PATH}/bazarr/config:/config # config files
-      - ${MEDIA_STORAGE_MOVIES}:/movies # movies folder
-      - ${MEDIA_STORAGE_TVSHOWS}:/tv # tv shows folder
+      - bazarr:/config # config files
+      - lama-nas-movies:/movies # movies folder
+      - lama-nas-tvshows:/tv # tv shows folder
     ports:
       - 6767:6767
-    labels:
-      - "com.centurylinklabs.watchtower.enable=true"
-    stdin_open: true
-    tty: true  
-  
-  watchtower:
-    container_name: watchtower
-    image: containrrr/watchtower:latest
-    restart: always
-    networks:
-      - custom
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
+
+  sabnzbd:
+    container_name: sabnzbd
+    image: lscr.io/linuxserver/sabnzbd:latest
     environment:
-      - WATCHTOWER_CLEANUP=true
-      - WATCHTOWER_LABEL_ENABLE=true
-      - WATCHTOWER_INCLUDE_RESTARTING=true
-      - TZ=${TZ}
-      - PUID=${PUID} # default user id, defined in .env
-      - PGID=${PGID}
-    command: --interval 10 --http-api-metrics --http-api-token demotoken --debug prometheus grafana parent child
-    labels:
-      - "com.centurylinklabs.watchtower.enable=true"
-    stdin_open: true
-    tty: true  
-  
-  pihole:
-    container_name: pihole
-    image: pihole/pihole:latest
+      - TZ=${TZ} # timezone, defined in .env
+    volumes:
+      - lama-nas-downloads:/downloads # download folder
+      - sabnzbd:/config # config files
     ports:
-      - "53:53/tcp"
-      - "53:53/udp"
-      - "67:67/udp"
-      - "8833:80/tcp"
-    environment:
-      - TZ=${TZ}
-      - PUID=${PUID} # default user id, defined in .env
-      - PGID=${PGID}
-      # WEBPASSWORD: 'set a secure password here or it will be random'
-    # Volumes store your data between container upgrades
-    volumes:
-      - ${CONTAINER_CONF_PATH}/pihole/etc-pihole/:/etc/pihole/
-      - ${CONTAINER_CONF_PATH}/pihole/etc-dnsmasq.d/:/etc/dnsmasq.d/
-    # Recommended but not required (DHCP needs NET_ADMIN)
-    #   https://github.com/pi-hole/docker-pi-hole#note-on-capabilities
-    cap_add:
-      - NET_ADMIN
-    restart: unless-stopped
-    networks:
-      - custom
-    labels:
-      - "com.centurylinklabs.watchtower.enable=true"
-    stdin_open: true
-    tty: true  
+      - 8080:8080
+
 
   nzbhydra2:
-    image: lscr.io/linuxserver/nzbhydra2:latest
+    <<: *container-default
+    profiles:
+      - donotstart
+    image: linuxserver/nzbhydra2:latest
     container_name: nzbhydra2
     environment:
-      - PUID=${PUID}
-      - PGID=${PGID}
       - TZ=${TZ}
     volumes:
-      - ${CONTAINER_CONF_PATH}/nzbhydra2/config:/config
-      - ${DOWNLOAD_PATH}/nzb-blackhole:/nzb-blackhole
-      - ${DOWNLOAD_PATH}/torrent-blackhole:/torrent-blackhole
+      - nzbhydra2:/config
+      - lama-nas-nzb-blackhole:/nzb-blackhole
+      - lama-nas-torrent-blackhole:/torrent-blackhole
     ports:
       - 5076:5076
-    networks:
-      - custom
-    restart: unless-stopped
-    labels:
-      - "com.centurylinklabs.watchtower.enable=true"
-    stdin_open: true
-    tty: true
 
   emby:
+    <<: *container-default
     image: emby/embyserver:latest
     container_name: embyserver
-    networks:
-      - custom
-    environment:
-      - PUID=${PUID} # The UID to run emby as (default: 2)
-      - PGID=${PGID} # The GID to run emby as (default 2)
     volumes:
-      - ${CONTAINER_CONF_PATH}/emby/config:/config # Configuration directory
-      - ${CONTAINER_CONF_PATH}/emby/backup:/backup
-      - ${MEDIA_STORAGE_MOVIES}:/movies # Media directory
-      - ${MEDIA_STORAGE_TVSHOWS}:/tv # Media directory
+      - emby:/config # Configuration directory
+      - emby:/backup
+      - lama-nas-movies:/movies # Media directory
+      - lama-nas-tvshows:/tv # Media directory
     ports:
       - 8096:8096 # HTTP port
       - 8920:8920 # HTTPS port
     devices:
-      - /dev/dri/renderD128:/dev/dri/renderD128 # VAAPI/NVDEC/NVENC render nodes
-      - /dev/dri/card0:/dev/dri/card0
-    restart: unless-stopped
-    labels:
-      - "com.centurylinklabs.watchtower.enable=true"
-    stdin_open: true
-    tty: true
+      #- /dev/dri/renderD128:/dev/dri/renderD128 # VAAPI/NVDEC/NVENC render nodes
+        #- /dev/dri/card0:/dev/dri/card0
+      - /dev/dri:/dev/dri
+    environment:
+      - TZ=${TZ}
+
+  pihole:
+    <<: *container-default
+    container_name: pihole
+    networks:
+      - custom
+    ports:
+      - 192.168.50.102:53:53/tcp
+      - 192.168.50.102:53:53/udp
+      - 8888:80
+    environment:
+      - TZ=${TZ}
+      - VIRTUAL_HOST=pi.hole
+      - PROXY_LOCATION=pi.hole
+      - FTLCONF_LOCAL_IPV4=127.0.0.1
+      - DNSMASQ_USER=root
+      - UID=100000
+      - SUID=100000
+    volumes:
+      - pihole-config:/etc/pihole
+      - pihole-dnsmasq:/etc/dnsmasq.d
+      - pihole-unbound:/opt/unbound
+    dns:
+      - 127.0.0.1
+      - 1.1.1.1
+    hostname: pi.hole
+    # image: pihole/pihole:latest # old image
+    image: rlabinc/pihole-unbound:latest 
+
+  clickhouse:
+    <<: *container-default
+    container_name: clickhouse
+    ports:
+      - 8123:8123
+      - 19000:9000
+    environment:
+      - TZ=${TZ}
+    volumes:
+      - clickhouse:/var/lib/clickhouse
+      - clickhouse:/var/log/clickhouse-server
+      - clickhouse:/etc/clickhouse-server/config.d
+      - clickhouse:/etc/clickhouse-server/users.d
+      - clickhouse:/docker-entrypoint-initdb.d
+    hostname: clickhouse
+    image: clickhouse/clickhouse-server:23-alpine
+
+  flaresolverr:
+    <<: *container-default
+    # DockerHub mirror flaresolverr/flaresolverr:latest
+    image: ghcr.io/flaresolverr/flaresolverr:latest
+    container_name: flaresolverr
+    environment:
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - LOG_HTML=${LOG_HTML:-false}
+      - CAPTCHA_SOLVER=${CAPTCHA_SOLVER:-none}
+      - TZ={TZ}
+    ports:
+      - "${PORT:-8191}:8191"
+
+  prowlarr:
+    <<: *container-default
+    image: lscr.io/linuxserver/prowlarr:latest
+    container_name: prowlarr
+    environment:
+      - TZ={TZ}
+    volumes:
+      - prowlarr:/config
+    ports:
+      - 9696:9696
+  
+  homeassistant:
+    <<: *container-default
+    container_name: homeassistant
+    image: "ghcr.io/home-assistant/home-assistant:stable"
+    volumes:
+      - homeassistant:/config
+      - /etc/localtime:/etc/localtime:ro
+      - /run/dbus:/run/dbus:ro
+    environment:
+      - TZ={TZ}
+    ports:
+      - 8765:8123
+
+  netdata:
+    <<: *container-default
+    image: netdata/netdata
+    container_name: netdata
+      # pid: host
+    ports: 
+      - 19999:19999
+    cap_add:
+      - SYS_PTRACE
+      - SYS_ADMIN
+    security_opt:
+      - apparmor:unconfined
+    environment:
+      - TZ={TZ}
+    volumes:
+      - netdataconfig:/etc/netdata
+      - netdatalib:/var/lib/netdata
+      - netdatacache:/var/cache/netdata
+      - /etc/passwd:/host/etc/passwd:ro
+      - /etc/group:/host/etc/group:ro
+      - /etc/localtime:/etc/localtime:ro
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /etc/os-release:/host/etc/os-release:ro
+      - /var/log:/host/var/log:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /run/dbus:/run/dbus:ro
+
+
+  caddy:
+    <<: *container-default
+    container_name: caddy
+    image: wenga/caddy_cloudflare:latest
+    cap_add:
+      - NET_ADMIN
+    environment:
+      - TZ={TZ}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - caddy_caddyfile:/etc/caddy
+      - caddy_site:/srv
+      - caddy_data:/data
+      - caddy_config:/config
+    dns:  
+      - 192.168.50.102
+  
+  homer:
+    <<: *container-default
+    image: b4bz/homer
+    container_name: homer
+    volumes:
+      - homer:/www/assets
+    ports:
+      - 16182:8080
+    environment:
+      - INIT_ASSETS=1 # default
+      - TZ={TZ}
+  
+  openldap:
+    <<: *container-default
+    image: bitnami/openldap:2
+    container_name: openldap
+    ports:
+      - 389:1389
+      - 636:1636
+    environment:
+      - TZ={TZ}
+      - LDAP_ROOT=dc=lama-lan,dc=ch
+      - LDAP_ADMIN_DN=cn=admin,dc=lama-lan,dc=ch
+    volumes:
+      - openldap_data:/bitnami/openldap
+
+  lam:
+    <<: *container-default
+    image: ghcr.io/ldapaccountmanager/lam:stable
+    container_name: lam
+    ports:
+      - 8800:80
+    environment:
+      - TZ={TZ}
+      - LDAP_DOMAIN=lama-lan.ch
+      - LDAP_SERVER=ldap://openldap:1389
+      - LDAP_USER=cn=admin,dc=lama-lan,dc=ch
+      - LDAP_ORGANISATION="Lama LAN LDAP Account Manager"
+    volumes:
+      - lam-etc:/etc/ldap-account-manager
+      - lam-lib:/var/lib/ldap-account-manager
+    depends_on:
+      - openldap
+
+  authelia:
+    <<: *container-default
+    container_name: authelia
+    image: docker.io/authelia/authelia:latest
+    ports:
+      - 9091:9091
+    environment:
+      AUTHELIA_JWT_SECRET_FILE: /secrets/.JWT_SECRET
+      AUTHELIA_SESSION_SECRET_FILE: /secrets/.SESSION_SECRET
+      # AUTHELIA_STORAGE_POSTGRES_PASSWORD_FILE: /secrets/.STORAGE_PASSWORD
+      AUTHELIA_STORAGE_ENCRYPTION_KEY_FILE: /secrets/.STORAGE_ENCRYPTION_KEY
+      AUTHELIA_NOTIFIER_SMTP_PASSWORD_FILE: /secrets/.SMTP_PASSWORD
+      PUID: 100000
+      PGID: 100000
+      AUTHELIA_AUTHENTICATION_BACKEND_LDAP_PASSWORD_FILE: /secrets/.LDAP_PASSWORD
+    volumes:
+      - authelia-config:/config
+      - authelia-secret:/secrets
+    depends_on:
+      - redis
+      - openldap
+
+
+  redis:
+    <<: *container-default
+    container_name: redis
+    image: redis:latest
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 30s
+      retries: 50
+      start_period: 30s
+    expose:
+     - 6379
+  
+  ombi:
+    <<: *container-default
+    image: lscr.io/linuxserver/ombi:latest
+    container_name: ombi
+    environment:
+      - TZ={TZ}
+      - BASE_URL=/ombi #optional
+    volumes:
+      - ombi:/config
+    ports:
+      - 3579:3579
+      
 
 networks:
   custom:
@@ -360,3 +452,82 @@ networks:
       config:
         - subnet: 172.16.240.0/24
           gateway: 172.16.240.1
+
+volumes:
+  lama-nas-downloads:
+    driver_opts:
+      type: "nfs"
+      o: "addr=lama-nas.local,nolock,soft,rw"
+      device: ":/volume2/downloads"
+  
+  lama-nas-transcode-cache:
+    driver_opts:
+      type: "nfs"
+      o: "addr=lama-nas.local,nolock,soft,rw"
+      device: ":/volume2/downloads/transcode_cache"
+
+  lama-nas-media:
+    driver_opts:
+      type: "nfs"
+      o: "addr=lama-nas.local,nolock,soft,rw"
+      device: ":/volume2/media"
+
+  lama-nas-movies:
+    driver_opts:
+      type: "nfs"
+      o: "addr=lama-nas.local,nolock,soft,rw"
+      device: ":/volume2/media/movies"
+
+  lama-nas-tvshows:
+    driver_opts:
+      type: "nfs"
+      o: "addr=lama-nas.local,nolock,soft,rw"
+      device: ":/volume2/media/tvshows"
+  
+  lama-nas-torrent-blackhole:
+    driver_opts:
+      type: "nfs"
+      o: "addr=lama-nas.local,nolock,soft,rw"
+      device: ":/volume2/downloads/torrent-blackhole"
+      
+  
+  lama-nas-nzb-blackhole:
+    driver_opts:
+      type: "nfs"
+      o: "addr=lama-nas.local,nolock,soft,rw"
+      device: ":/volume2/downloads/nzb-blackhole"
+  
+  sonarr:
+  radarr:
+  tdarr:
+  portainer:
+  mqtt:
+  prometheus:
+  grafana:
+  openvpn:
+  clickhouse:
+  emby:
+  deluge:
+  pihole-config:
+  pihole-dnsmasq:
+  nzbhydra2:
+  sabnzbd:
+  bazarr:
+  jackett:
+  prowlarr:
+  homeassistant:
+  pihole-unbound:
+  netdataconfig:
+  netdatalib:
+  netdatacache:
+  caddy_caddyfile:
+  caddy_site:
+  caddy_data:
+  caddy_config:
+  homer:
+  openldap_data:
+  lam-etc:
+  lam-lib:
+  authelia-config:
+  authelia-secret:
+  ombi:

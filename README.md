@@ -1,5 +1,8 @@
-# Synology-Download-Box
-A one-stop solution for downloading and managing movies and tvshows on a Synology NAS (or any other system)
+# Download-Box
+A one-stop solution for downloading and managing movies and tvshows with docker
+
+> [!CAUTION]
+> This is currently getting a rework done, so don't use this branch unless you know what you are doing.
 
 ## Overview
 ![Synology Download Box](img/synology-download-box-diagram.png)
