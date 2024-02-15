@@ -17,6 +17,10 @@ A one-stop solution for downloading and managing movies and tvshows with docker 
 * ◼️ Add profiles so not all containers need to be started
 
 # Manual
+## Requirements
+* `docker-ce` with `docker-compose`
+* Docker Swarm so we can use `docker secrets` (only one host needed)
+
 ## Quick Start
 Make sure you edit the `.env` file, so it suits your environment. After that you can bring this stack up by executing `docker-compose up -d`. Configs are not provided, so you have to manually configure all the software components.
 
