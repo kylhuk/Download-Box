@@ -1,7 +1,25 @@
+#
+# 8888888b.   .d88888b.  888       888 888b    888 888      .d88888b.        d8888 8888888b.       888888b.    .d88888b. Y88b   d88P 
+# 888  "Y88b d88P" "Y88b 888   o   888 8888b   888 888     d88P" "Y88b      d88888 888  "Y88b      888  "88b  d88P" "Y88b Y88b d88P  
+# 888    888 888     888 888  d8b  888 88888b  888 888     888     888     d88P888 888    888      888  .88P  888     888  Y88o88P   
+# 888    888 888     888 888 d888b 888 888Y88b 888 888     888     888    d88P 888 888    888      8888888K.  888     888   Y888P    
+# 888    888 888     888 888d88888b888 888 Y88b888 888     888     888   d88P  888 888    888      888  "Y88b 888     888   d888b    
+# 888    888 888     888 88888P Y88888 888  Y88888 888     888     888  d88P   888 888    888      888    888 888     888  d88888b   
+# 888  .d88P Y88b. .d88P 8888P   Y8888 888   Y8888 888     Y88b. .d88P d8888888888 888  .d88P      888   d88P Y88b. .d88P d88P Y88b  
+# 8888888P"   "Y88888P"  888P     Y888 888    Y888 88888888 "Y88888P" d88P     888 8888888P"       8888888P"   "Y88888P" d88P   Y88b 
+#                                                                                                                      
+# Author: github.com/kylhuk
+# License: GPL-3
+#
 version: '3.8'
-  #include:
-  #- airflow/apache-airflow-compose.yaml
 
+################################################################################
+#    ____   _  __ ______   ____   _  __   ____   ____  ____    _  __   ____
+#   / __/  | |/_//_  __/  / __/  / |/ /  / __/  /  _/ / __ \  / |/ /  / __/
+#  / _/   _>  <   / /    / _/   /    /  _\ \   _/ /  / /_/ / /    /  _\ \  
+# /___/  /_/|_|  /_/    /___/  /_/|_/  /___/  /___/  \____/ /_/|_/  /___/  
+#
+################################################################################
 x-stdin-tty: &stdin-tty
   stdin_open: true
   tty: true
@@ -10,9 +28,16 @@ x-container-default: &container-default
   <<: *stdin-tty
   networks:
     - custom
-  restart: unless-stopped
+  restart: always
 
 
+##############################################################
+#    ____   ____   ___   _   __   ____  _____   ____   ____
+#   / __/  / __/  / _ \ | | / /  /  _/ / ___/  / __/  / __/
+#  _\ \   / _/   / , _/ | |/ /  _/ /  / /__   / _/   _\ \  
+# /___/  /___/  /_/|_|  |___/  /___/  \___/  /___/  /___/  
+#
+##############################################################
 services:
   portainer:
     <<: *container-default
@@ -171,7 +196,6 @@ services:
     ports:
       - 8080:8080
 
-
   nzbhydra2:
     <<: *container-default
     profiles:
@@ -231,7 +255,6 @@ services:
       - 127.0.0.1
       - 1.1.1.1
     hostname: pi.hole
-    # image: pihole/pihole:latest # old image
     image: rlabinc/pihole-unbound:latest 
 
   clickhouse:
@@ -287,35 +310,6 @@ services:
       - TZ={TZ}
     ports:
       - 8765:8123
-
-  netdata:
-    <<: *container-default
-    image: netdata/netdata
-    container_name: netdata
-      # pid: host
-    ports: 
-      - 19999:19999
-    cap_add:
-      - SYS_PTRACE
-      - SYS_ADMIN
-    security_opt:
-      - apparmor:unconfined
-    environment:
-      - TZ={TZ}
-    volumes:
-      - netdataconfig:/etc/netdata
-      - netdatalib:/var/lib/netdata
-      - netdatacache:/var/cache/netdata
-      - /etc/passwd:/host/etc/passwd:ro
-      - /etc/group:/host/etc/group:ro
-      - /etc/localtime:/etc/localtime:ro
-      - /proc:/host/proc:ro
-      - /sys:/host/sys:ro
-      - /etc/os-release:/host/etc/os-release:ro
-      - /var/log:/host/var/log:ro
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-      - /run/dbus:/run/dbus:ro
-
 
   caddy:
     <<: *container-default
@@ -403,7 +397,6 @@ services:
       - redis
       - openldap
 
-
   redis:
     <<: *container-default
     container_name: redis
@@ -428,8 +421,85 @@ services:
       - ombi:/config
     ports:
       - 3579:3579
-      
 
+  lldap:
+    <<: *container-default
+    image: lldap/lldap:stable
+    container_name: lldap
+    ports:
+      # For LDAP, not recommended to expose, see Usage section.
+      #- "3890:3890"
+      # For LDAPS (LDAP Over SSL), enable port if LLDAP_LDAPS_OPTIONS__ENABLED set true, look env below
+      #- "6360:6360"
+      # For the web front-end
+      - "17170:17170"
+    volumes:
+      - "lldap-data:/data"
+      # Alternatively, you can mount a local folder
+      # - "./lldap_data:/data"
+    environment:
+      #- UID=####
+      #- GID=####
+      - TZ={TZ}
+      - LLDAP_JWT_SECRET_FILE=/run/secrets/lldap_jwt_secret
+      - LLDAP_KEY_FILE=/run/secrets/lldap_key_seed
+      - LLDAP_LDAP_BASE_DN=dc=lama-lan,dc=ch
+      - LLDAP_LDAP_USER_PASS_FILE=/run/secrets/lldap_user_pass
+    
+  cadvisor:
+    <<: *container-default
+    image: gcr.io/cadvisor/cadvisor
+    container_name: cadvisor
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:rw
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+      - /dev/kmsg:/dev/kmsg:ro
+
+  node_exporter:
+    <<: *container-default
+    image: prom/node-exporter
+    container_name: node_exporter
+
+  dockerproxy:
+    <<: *container-default
+    image: tecnativa/docker-socket-proxy
+    container_name: dockerproxy
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      CONTAINERS: 1
+      NETWORKS: 1
+      VOLUMES: 1
+      IMAGES: 1
+      TASKS: 1
+      SERVICES: 1
+    # ports:
+    #   - "2375:2375"
+
+
+######################################################
+#    ____   ____  _____   ___    ____ ______   ____
+#   / __/  / __/ / ___/  / _ \  / __//_  __/  / __/
+#  _\ \   / _/  / /__   / , _/ / _/   / /    _\ \  
+# /___/  /___/  \___/  /_/|_| /___/  /_/    /___/  
+#
+######################################################
+secrets:
+  lldap_jwt_secret:
+    external: true
+  lldap_key_seed:
+    external: true
+
+
+######################################################################
+#    _  __   ____ ______  _      __  ____    ___    __ __   ____
+#   / |/ /  / __//_  __/ | | /| / / / __ \  / _ \  / //_/  / __/
+#  /    /  / _/   / /    | |/ |/ / / /_/ / / , _/ / ,<    _\ \  
+# /_/|_/  /___/  /_/     |__/|__/  \____/ /_/|_| /_/|_|  /___/  
+#
+######################################################################
 networks:
   custom:
     # use the bridge driver, but enable IPv6
@@ -453,6 +523,14 @@ networks:
         - subnet: 172.16.240.0/24
           gateway: 172.16.240.1
 
+
+############################################################
+#   _   __  ____    __   __  __   __  ___   ____   ____
+#  | | / / / __ \  / /  / / / /  /  |/  /  / __/  / __/
+#  | |/ / / /_/ / / /__/ /_/ /  / /|_/ /  / _/   _\ \  
+#  |___/  \____/ /____/\____/  /_/  /_/  /___/  /___/  
+#
+############################################################
 volumes:
   lama-nas-downloads:
     driver_opts:
@@ -531,3 +609,4 @@ volumes:
   authelia-config:
   authelia-secret:
   ombi:
+  lldap-data:
