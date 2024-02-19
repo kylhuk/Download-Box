@@ -30,6 +30,25 @@ x-container-default: &container-default
     - custom
   restart: always
 
+x-resource-normal: &resource-normal
+  deploy:
+    resources:
+      limits:
+        cpus: '0.20' # Limit to 50% of a CPU
+        memory: 256M # Limit to 256 megabytes of RAM
+      reservations:
+        cpus: '0.1' # Reserve 25% of a CPU
+        memory: 128M # Reserve 128 megabytes of RAM
+
+x-resource-high: &resource-high
+  deploy:
+    resources:
+      limits:
+        cpus: '4.0' # Limit to 50% of a CPU
+        memory: 1G # Limit to 256 megabytes of RAM
+      reservations:
+        cpus: '0.5' # Reserve 25% of a CPU
+        memory: 512M # Reserve 128 megabytes of RAM
 
 ##############################################################
 #    ____   ____   ___   _   __   ____  _____   ____   ____
@@ -40,20 +59,29 @@ x-container-default: &container-default
 ##############################################################
 services:
   portainer:
-    <<: *container-default
+    <<: [ *container-default, *resource-normal ]
     ports:
-        - 8000:8000
-        - 9000:9000
+      - 8000:8000
+      - 9000:9000
     container_name: portainer
+    command: -H tcp://dockerproxy:2375
     volumes:
-        - /var/run/docker.sock:/var/run/docker.sock
-        - portainer:/data
-    image: portainer/portainer-ce:latest
+      #- /var/run/docker.sock:/var/run/docker.sock
+      - portainer:/data
+    image: portainer/portainer-ce:2.19.4-alpine
     environment:
       - TZ=${TZ}
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:2375/ || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    depends_on:
+      - dockerproxy
 
   mqtt:
-    <<: *container-default
+    <<: [ *container-default, *resource-normal ]
     ports:
         - 1883:1883
         - 9001:9001
@@ -65,9 +93,15 @@ services:
     image: toke/mosquitto:latest
     environment:
       - TZ=${TZ}
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:9001/ || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
 
   prometheus:
-    <<: *container-default
+    <<: [ *container-default, *resource-normal ]
     ports:
         - 9090:9090
     container_name: prometheus
@@ -81,9 +115,17 @@ services:
       - '--config.file=/etc/prometheus/prometheus.yml'
       - '--storage.tsdb.path=/prometheus'
       - '--storage.tsdb.retention.time=50y'
+    extra_hosts:
+      - host.docker.internal=host-gateway
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:9090/ || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
 
   grafana:
-    <<: *container-default
+    <<: [ *container-default, *resource-normal ]
     ports:
       - 3000:3000
     container_name: grafana
@@ -93,32 +135,38 @@ services:
       - grafana:/var/lib/grafana
       - grafana:/etc/grafana
     image: grafana/grafana:latest
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:3000/ || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
 
-  vpn:
-    <<: *stdin-tty
-    profiles:
-      - donotstart
-    container_name: vpn
-    image: dperson/openvpn-client:latest
-    cap_add:
-      - net_admin # required to modify network interfaces
-    volumes:
-      - openvpn:/vpn # OpenVPN configuration
-    security_opt:
-      - label:disable
-    ports:
-      - 8112:8112 # port for deluge web UI to be reachable from local network
-    command: '-f "" -r 192.168.1.0/24' # enable firewall and route local network traffic
-    networks:
-      - vpn
-      - custom
-    dns: 
-      - 172.16.238.1
-    environment:
-      - TZ=${TZ}
+  # vpn:
+  #   <<: *stdin-tty
+  #   profiles:
+  #     - donotstart
+  #   container_name: vpn
+  #   image: dperson/openvpn-client:latest
+  #   cap_add:
+  #     - net_admin # required to modify network interfaces
+  #   volumes:
+  #     - openvpn:/vpn # OpenVPN configuration
+  #   security_opt:
+  #     - label:disable
+  #   ports:
+  #     - 8112:8112 # port for deluge web UI to be reachable from local network
+  #   command: '-f "" -r 192.168.1.0/24' # enable firewall and route local network traffic
+  #   networks:
+  #     - vpn
+  #     - custom
+  #   dns: 
+  #     - 172.16.238.1
+  #   environment:
+  #     - TZ=${TZ}
 
   deluge:
-    <<: *container-default
+    <<: [ *container-default, *resource-normal ]
     container_name: deluge
     image: lscr.io/linuxserver/deluge:latest
     environment:
@@ -129,9 +177,15 @@ services:
       - deluge:/config # config files
     ports:
       - 8112:8112
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8112/ || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
 
   jackett:
-    <<: *container-default
+    <<: [ *container-default, *resource-normal ]
     container_name: jackett
     image: linuxserver/jackett:latest
     environment:
@@ -142,9 +196,15 @@ services:
       - jackett:/config # config files
     ports:
       - 9117:9117
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:9117/ || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
     
   sonarr:
-    <<: *container-default
+    <<: [ *container-default, *resource-high ]
     container_name: sonarr
     image: linuxserver/sonarr:latest
     environment:
@@ -156,9 +216,15 @@ services:
       - lama-nas-downloads:/downloads # download folder
     ports:
       - 8989:8989
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8989/ || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
 
   radarr:
-    <<: *container-default
+    <<: [ *container-default, *resource-high ]
     container_name: radarr
     image: linuxserver/radarr:latest
     restart: unless-stopped
@@ -171,8 +237,15 @@ services:
       - lama-nas-downloads:/downloads # download folder
     ports:
       - 7878:7878
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:7878/ || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
 
   bazarr:
+    <<: [ *container-default, *resource-high ]
     container_name: bazarr
     image: linuxserver/bazarr:latest
     environment:
@@ -184,8 +257,15 @@ services:
       - lama-nas-tvshows:/tv # tv shows folder
     ports:
       - 6767:6767
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:6767/ || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
 
   sabnzbd:
+    <<: [ *container-default, *resource-high ]
     container_name: sabnzbd
     image: lscr.io/linuxserver/sabnzbd:latest
     environment:
@@ -195,24 +275,30 @@ services:
       - sabnzbd:/config # config files
     ports:
       - 8080:8080
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8080/ || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
 
-  nzbhydra2:
-    <<: *container-default
-    profiles:
-      - donotstart
-    image: linuxserver/nzbhydra2:latest
-    container_name: nzbhydra2
-    environment:
-      - TZ=${TZ}
-    volumes:
-      - nzbhydra2:/config
-      - lama-nas-nzb-blackhole:/nzb-blackhole
-      - lama-nas-torrent-blackhole:/torrent-blackhole
-    ports:
-      - 5076:5076
+  # nzbhydra2:
+  #   <<: [ *container-default, *resource-normal ]
+  #   profiles:
+  #     - donotstart
+  #   image: linuxserver/nzbhydra2:latest
+  #   container_name: nzbhydra2
+  #   environment:
+  #     - TZ=${TZ}
+  #   volumes:
+  #     - nzbhydra2:/config
+  #     - lama-nas-nzb-blackhole:/nzb-blackhole
+  #     - lama-nas-torrent-blackhole:/torrent-blackhole
+  #   ports:
+  #     - 5076:5076
 
   emby:
-    <<: *container-default
+    <<: [ *container-default, *resource-high ]
     image: emby/embyserver:latest
     container_name: embyserver
     volumes:
@@ -224,14 +310,20 @@ services:
       - 8096:8096 # HTTP port
       - 8920:8920 # HTTPS port
     devices:
-      #- /dev/dri/renderD128:/dev/dri/renderD128 # VAAPI/NVDEC/NVENC render nodes
-        #- /dev/dri/card0:/dev/dri/card0
+      - /dev/dri/renderD128:/dev/dri/renderD128 # VAAPI/NVDEC/NVENC render nodes
+      - /dev/dri/card0:/dev/dri/card0
       - /dev/dri:/dev/dri
     environment:
       - TZ=${TZ}
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8096/ || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
 
   pihole:
-    <<: *container-default
+    <<: [ *container-default, *resource-normal ]
     container_name: pihole
     networks:
       - custom
@@ -255,10 +347,16 @@ services:
       - 127.0.0.1
       - 1.1.1.1
     hostname: pi.hole
-    image: rlabinc/pihole-unbound:latest 
+    image: rlabinc/pihole-unbound:latest
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8888/ || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
 
   clickhouse:
-    <<: *container-default
+    <<: [ *container-default, *resource-high ]
     container_name: clickhouse
     ports:
       - 8123:8123
@@ -273,9 +371,15 @@ services:
       - clickhouse:/docker-entrypoint-initdb.d
     hostname: clickhouse
     image: clickhouse/clickhouse-server:23-alpine
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8123/ || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
 
   flaresolverr:
-    <<: *container-default
+    <<: [ *container-default, *resource-normal ]
     # DockerHub mirror flaresolverr/flaresolverr:latest
     image: ghcr.io/flaresolverr/flaresolverr:latest
     container_name: flaresolverr
@@ -286,9 +390,15 @@ services:
       - TZ={TZ}
     ports:
       - "${PORT:-8191}:8191"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8191/ || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
 
   prowlarr:
-    <<: *container-default
+    <<: [ *container-default, *resource-normal ]
     image: lscr.io/linuxserver/prowlarr:latest
     container_name: prowlarr
     environment:
@@ -297,9 +407,15 @@ services:
       - prowlarr:/config
     ports:
       - 9696:9696
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:9696/ || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
   
   homeassistant:
-    <<: *container-default
+    <<: [ *container-default, *resource-normal ]
     container_name: homeassistant
     image: "ghcr.io/home-assistant/home-assistant:stable"
     volumes:
@@ -310,9 +426,15 @@ services:
       - TZ={TZ}
     ports:
       - 8765:8123
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8765/ || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
 
   caddy:
-    <<: *container-default
+    <<: [ *container-default, *resource-normal ]
     container_name: caddy
     image: wenga/caddy_cloudflare:latest
     cap_add:
@@ -330,9 +452,15 @@ services:
       - caddy_config:/config
     dns:  
       - 192.168.50.102
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:443/ || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
   
   homer:
-    <<: *container-default
+    <<: [ *container-default, *resource-normal ]
     image: b4bz/homer
     container_name: homer
     volumes:
@@ -342,9 +470,15 @@ services:
     environment:
       - INIT_ASSETS=1 # default
       - TZ={TZ}
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:16182/ || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
   
   openldap:
-    <<: *container-default
+    <<: [ *container-default, *resource-normal ]
     image: bitnami/openldap:2
     container_name: openldap
     ports:
@@ -356,9 +490,16 @@ services:
       - LDAP_ADMIN_DN=cn=admin,dc=lama-lan,dc=ch
     volumes:
       - openldap_data:/bitnami/openldap
+    healthcheck:
+      test: ["CMD-SHELL", "pgrep -f slapd || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
 
   lam:
-    <<: *container-default
+    <<: [ *container-default, *resource-normal ]
     image: ghcr.io/ldapaccountmanager/lam:stable
     container_name: lam
     ports:
@@ -374,9 +515,15 @@ services:
       - lam-lib:/var/lib/ldap-account-manager
     depends_on:
       - openldap
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8800/ || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
 
   authelia:
-    <<: *container-default
+    <<: [ *container-default, *resource-normal ]
     container_name: authelia
     image: docker.io/authelia/authelia:latest
     ports:
@@ -396,9 +543,15 @@ services:
     depends_on:
       - redis
       - openldap
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:9091/ || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
 
   redis:
-    <<: *container-default
+    <<: [ *container-default, *resource-normal ]
     container_name: redis
     image: redis:latest
     healthcheck:
@@ -408,10 +561,10 @@ services:
       retries: 50
       start_period: 30s
     expose:
-     - 6379
+      - 6379
   
   ombi:
-    <<: *container-default
+    <<: [ *container-default, *resource-normal ]
     image: lscr.io/linuxserver/ombi:latest
     container_name: ombi
     environment:
@@ -421,9 +574,15 @@ services:
       - ombi:/config
     ports:
       - 3579:3579
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:3579/ || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
 
   lldap:
-    <<: *container-default
+    <<: [ *container-default, *resource-normal ]
     image: lldap/lldap:stable
     container_name: lldap
     ports:
@@ -445,9 +604,15 @@ services:
       - LLDAP_KEY_FILE=/run/secrets/lldap_key_seed
       - LLDAP_LDAP_BASE_DN=dc=lama-lan,dc=ch
       - LLDAP_LDAP_USER_PASS_FILE=/run/secrets/lldap_user_pass
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:17170/ || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
     
   cadvisor:
-    <<: *container-default
+    <<: [ *container-default, *resource-normal ]
     image: gcr.io/cadvisor/cadvisor
     container_name: cadvisor
     volumes:
@@ -456,14 +621,26 @@ services:
       - /sys:/sys:ro
       - /var/lib/docker/:/var/lib/docker:ro
       - /dev/kmsg:/dev/kmsg:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pgrep -f cadvisor || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
 
   node_exporter:
-    <<: *container-default
+    <<: [ *container-default, *resource-normal ]
     image: prom/node-exporter
     container_name: node_exporter
+    healthcheck:
+      test: ["CMD-SHELL", "pgrep -f node_exporter || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
 
   dockerproxy:
-    <<: *container-default
+    <<: [ *container-default, *resource-normal ]
     image: tecnativa/docker-socket-proxy
     container_name: dockerproxy
     volumes:
@@ -475,8 +652,49 @@ services:
       IMAGES: 1
       TASKS: 1
       SERVICES: 1
+      SWARM: 1
+      NODES: 1
     # ports:
     #   - "2375:2375"
+    userns_mode: 'host'
+    privileged: true
+    healthcheck:
+      test: ["CMD-SHELL", "pgrep -f haproxy || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+
+  zitadel:
+    <<: [ *container-default, *resource-normal ]
+    image: ghcr.io/zitadel/zitadel:latest
+    container_name: zitadel
+    command: 'start-from-init --tlsMode disabled'
+    environment:
+      - ZITADEL_DATABASE_COCKROACH_HOST=crdb
+      - ZITADEL_EXTERNALSECURE=false
+      - ZITADEL_MASTERKEY=/run/secrets/zitadel_master_key
+    depends_on:
+      crdb:
+        condition: service_healthy
+    ports:
+      - 8987:8080
+
+  crdb:
+    <<: [ *container-default, *resource-normal ]
+    image: cockroachdb/cockroach:latest
+    container_name: crdb
+    command: 'start-single-node --insecure'
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health?ready=1"]
+      interval: 10s
+      timeout: 30s
+      retries: 5
+      start_period: 20s
+    # ports:
+    #   - '9090:8080'
+    #   - '26257:26257'
 
 
 ######################################################
@@ -490,6 +708,8 @@ secrets:
   lldap_jwt_secret:
     external: true
   lldap_key_seed:
+    external: true
+  zitadel_master_key:
     external: true
 
 
@@ -535,44 +755,44 @@ volumes:
   lama-nas-downloads:
     driver_opts:
       type: "nfs"
-      o: "addr=lama-nas.local,nolock,soft,rw"
+      o: "addr=lama-nas,nolock,soft,rw"
       device: ":/volume2/downloads"
   
   lama-nas-transcode-cache:
     driver_opts:
       type: "nfs"
-      o: "addr=lama-nas.local,nolock,soft,rw"
+      o: "addr=lama-nas,nolock,soft,rw"
       device: ":/volume2/downloads/transcode_cache"
 
   lama-nas-media:
     driver_opts:
       type: "nfs"
-      o: "addr=lama-nas.local,nolock,soft,rw"
+      o: "addr=lama-nas,nolock,soft,rw"
       device: ":/volume2/media"
 
   lama-nas-movies:
     driver_opts:
       type: "nfs"
-      o: "addr=lama-nas.local,nolock,soft,rw"
+      o: "addr=lama-nas,nolock,soft,rw"
       device: ":/volume2/media/movies"
 
   lama-nas-tvshows:
     driver_opts:
       type: "nfs"
-      o: "addr=lama-nas.local,nolock,soft,rw"
+      o: "addr=lama-nas,nolock,soft,rw"
       device: ":/volume2/media/tvshows"
   
   lama-nas-torrent-blackhole:
     driver_opts:
       type: "nfs"
-      o: "addr=lama-nas.local,nolock,soft,rw"
+      o: "addr=lama-nas,nolock,soft,rw"
       device: ":/volume2/downloads/torrent-blackhole"
       
   
   lama-nas-nzb-blackhole:
     driver_opts:
       type: "nfs"
-      o: "addr=lama-nas.local,nolock,soft,rw"
+      o: "addr=lama-nas,nolock,soft,rw"
       device: ":/volume2/downloads/nzb-blackhole"
   
   sonarr:
